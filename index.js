@@ -1,10 +1,13 @@
+const { Client, IntentsBitField, ActionRowBuilder, ButtonBuilder, ButtonStyle, MessageFlags, EmbedBuilder } = require('discord.js');
+const { token } = require('./config.json');
+/////////////////////////////////////////// uno things declarations"////////////////////////////////////////////
 class UnoCard {
     constructor(color, type) {
         this.color = color; // "red", "green", "blue", "yellow", "wild"
         this.type = type;   // "0"-"9", "skip", "reverse", "+2", "wild", "+4"
     }
 
-    toString() {
+    cardToString() {
         return `${this.color} ${this.type}`;
     }
 }
@@ -43,7 +46,9 @@ let game = {
     hands: {},
     currentPlayerIndex: 0,
     turnOrder: [],
-    direction: 1
+    direction: 1,
+    isActive: false,
+    discardPile: []
 };
 
 function dealCards(players) {
@@ -54,20 +59,86 @@ function dealCards(players) {
     return hands;
 }
 
-function startGame() {
+async function startGame(gameChannel) {
     game.deck = generateDeck();
     game.hands = dealCards(players);
     game.turnOrder = [...players];
     game.currentPlayerIndex = 0;
     game.direction = 1;
+    game.isActive = true;
+    hasGameStarted = true;
 
     const firstCard = game.deck.pop();
-    console.log(`🃏 First card is: ${firstCard.toString()}`);
+    game.discardPile.push(firstCard);
+    await gameChannel.send(`First card is: ${firstCard.cardToString()}`);
+    advanceTurn(gameChannel);
+}
+async function advanceTurn(gameChannel) {
+    const playerId = game.turnOrder[game.currentPlayerIndex];
+    const currentPlayer = await client.users.fetch(game.turnOrder[game.currentPlayerIndex]);
+
+    const sentMessage = await currentPlayer.send({content:"It's your turn now!", components: generateCurrentPlayerComponents(game)});
+
+    const filter = i => i.user.id === playerId;
+    const collector = sentMessage.createMessageComponentCollector({ filter, time: 15000 });
+
+    collector.on('collect', async i => {
+        const index = parseInt(i.customId) - 1;
+        const playedCard = game.hands[playerId][index];
+
+        game.discardPile.push(playedCard);
+        game.hands[playerId].splice(index, 1);
+        
+        await gameChannel.send(`<@${playerId}> played **${playedCard.cardToString()}**`);
+        await i.reply ({content: `You played ${playedCard.cardToString()}`, flags: MessageFlags.Ephemeral});
+
+        collector.stop();
+
+        game.currentPlayerIndex+=((game.direction)%(game.turnOrder.length));
+        advanceTurn(gameChannel);
+    });
+
+    collector.on('end', async (_, reason) => {
+        if (reason === "time") {
+            const drawnCard = game.deck.pop();
+            game.hands[playerId].push(drawnCard);
+
+            await currentPlayer.send("You ran out of time, so you automatically drew a card.");
+
+            game.currentPlayerIndex+=((game.direction)%(game.turnOrder.length));
+            advanceTurn(gameChannel);
+        }
+    });
 }
 
-const { Client, IntentsBitField, ActionRowBuilder, ButtonBuilder, ButtonStyle, MessageFlags, EmbedBuilder } = require('discord.js');
-const { token, client_id } = require('./config.json');
+function generateCurrentPlayerComponents(game) {
+    const actionRows = [];
+    let currentRow = new ActionRowBuilder();
+    const playerId = game.turnOrder[game.currentPlayerIndex];
+    const playerHand = game.hands[playerId];
 
+    for (let i = 0; i < playerHand.length; i++) {
+        if (currentRow.components.length === 5) {
+            actionRows.push(currentRow);
+            currentRow = new ActionRowBuilder();
+        }
+
+        currentRow.addComponents(
+            new ButtonBuilder().setCustomId(`${i + 1}`)
+                .setLabel(playerHand[i]
+                .cardToString())
+                .setStyle(ButtonStyle.Secondary)
+        );
+    }
+
+    if (currentRow.components.length > 0) {
+        actionRows.push(currentRow);
+    }
+
+    return actionRows;
+}
+
+///////////////////////////////////////////// discord api things ///////////////////////////////////////////////
 const client = new Client({
     intents: [
         IntentsBitField.Flags.GuildMessages,
@@ -126,8 +197,7 @@ client.on('interactionCreate', async interaction => {
     
         setTimeout(() => {
             gameChannel.send(`🚀 Game starting with ${players.length} players!`);
-            startGame();
-            hasGameStarted = true;
+            startGame(gameChannel);
         }, 1000);
     }
 });
