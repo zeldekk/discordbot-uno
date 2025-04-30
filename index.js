@@ -1,6 +1,8 @@
 const { Client, IntentsBitField, ActionRowBuilder, ButtonBuilder, ButtonStyle, MessageFlags, EmbedBuilder } = require('discord.js');
 const { token } = require('./config.json');
-/////////////////////////////////////////// uno things declarations"////////////////////////////////////////////
+
+/////////////////////////////////////////// uno things declarations ////////////////////////////////////////////
+
 class UnoCard {
     constructor(color, type) {
         this.color = color; // "red", "green", "blue", "yellow", "wild"
@@ -75,6 +77,7 @@ async function startGame(gameChannel) {
 }
 async function advanceTurn(gameChannel) {
     const playerId = game.turnOrder[game.currentPlayerIndex];
+    const nextPlayerId = game.turnOrder[(game.currentPlayerIndex + game.direction)%game.turnOrder.length];
     const currentPlayer = await client.users.fetch(game.turnOrder[game.currentPlayerIndex]);
 
     const sentMessage = await currentPlayer.send({content:"It's your turn now!", components: generateCurrentPlayerComponents(game)});
@@ -88,13 +91,45 @@ async function advanceTurn(gameChannel) {
 
         game.discardPile.push(playedCard);
         game.hands[playerId].splice(index, 1);
+
+        switch (playedCard.type) {
+            case "skip": {
+                game.currentPlayerIndex = (game.currentPlayerIndex + (2*game.direction)) % game.turnOrder.length;
+                break;
+            }
+            case "reverse": {
+                game.direction = -game.direction;
+                break;
+            }
+            case "+2": {
+                for (let i = 0; i < 2; i++) {
+                    const drawnCard = game.deck.pop();
+                    game.hands[playerId].push(drawnCard);
+                }
+                break;
+            }
+            case "wild": {
+
+                break;
+            }
+            case "+4": {
+                for (let i = 0; i < 2; i++) {
+                    const drawnCard = game.deck.pop();
+                    game.hands[playerId].push(drawnCard);
+                }
+                break;
+            }
+            default: {
+                game.currentPlayerIndex = (game.currentPlayerIndex + game.direction) % game.turnOrder.length;
+            }
+        }
         
         await gameChannel.send(`<@${playerId}> played **${playedCard.cardToString()}**`);
-        await i.reply ({content: `You played ${playedCard.cardToString()}`, flags: MessageFlags.Ephemeral});
+        await i.reply ({content: `You played **${playedCard.cardToString()}**`, flags: MessageFlags.Ephemeral});
 
         collector.stop();
 
-        game.currentPlayerIndex+=((game.direction)%(game.turnOrder.length));
+        
         advanceTurn(gameChannel);
     });
 
@@ -104,8 +139,8 @@ async function advanceTurn(gameChannel) {
             game.hands[playerId].push(drawnCard);
 
             await currentPlayer.send("You ran out of time, so you automatically drew a card.");
-
-            game.currentPlayerIndex+=((game.direction)%(game.turnOrder.length));
+            
+            game.currentPlayerIndex = (game.currentPlayerIndex + game.direction) % game.turnOrder.length;
             advanceTurn(gameChannel);
         }
     });
@@ -139,6 +174,7 @@ function generateCurrentPlayerComponents(game) {
 }
 
 ///////////////////////////////////////////// discord api things ///////////////////////////////////////////////
+
 const client = new Client({
     intents: [
         IntentsBitField.Flags.GuildMessages,
@@ -188,7 +224,7 @@ client.on('interactionCreate', async interaction => {
     await interaction.reply({content: "You joined the game", flags: MessageFlags.Ephemeral});
     players.push(interaction.user.id);
 
-    if (!countingDown && players.length >= 1) {
+    if (!countingDown && players.length >= 1) { //PROJECTFINISH: change to two
         countingDown = true;
     
         const gameChannel = interaction.channel;
@@ -198,7 +234,7 @@ client.on('interactionCreate', async interaction => {
         setTimeout(() => {
             gameChannel.send(`🚀 Game starting with ${players.length} players!`);
             startGame(gameChannel);
-        }, 1000);
+        }, 1000); //PROJECTFINISH: change to 60000
     }
 });
 
