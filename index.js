@@ -113,6 +113,14 @@ async function handleWildCard(playerId, currentPlayer, gameChannel) {
     });
 }
 
+function isValidPlay(card, topCard, activeColor) {
+    if (card.color === 'wild') return true;
+    if (card.color === activeColor) return true;
+    if (card.type === topCard.type) return true;
+    return false;
+}
+
+
 //////////////////////////////////////////////// uno - game loop //////////////////////////////////////////////////
 
 async function startGame(gameChannel) {
@@ -128,7 +136,7 @@ async function startGame(gameChannel) {
     while (firstCard.type === 'wild' || firstCard.type === '+4') {
         game.deck.unshift(firstCard);
          firstCard = game.deck.pop();
-     }
+    }
     game.discardPile.push(firstCard);
 
     switch(firstCard.type) {
@@ -174,6 +182,15 @@ async function advanceTurn(gameChannel) {
     collector.on('collect', async i => {
         const index = parseInt(i.customId) - 1;
         const playedCard = game.hands[playerId][index];
+        const topCard = game.discardPile[game.discardPile.length - 1];
+
+        if (!isValidPlay(playedCard, topCard, game.activeColor)) {
+            await i.reply({
+                content: "You can't play that card, invalid colour or type",
+                flags: MessageFlags.Ephemeral
+            });
+            return;
+        }
 
         game.discardPile.push(playedCard);
         game.hands[playerId].splice(index, 1);
