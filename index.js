@@ -75,15 +75,17 @@ function generateCurrentPlayerComponents(game) {
 
         currentRow.addComponents(
             new ButtonBuilder().setCustomId(`${i + 1}`)
-                .setLabel(playerHand[i]
-                .cardToString())
-                .setStyle(ButtonStyle.Secondary)
+                .setLabel(playerHand[i].cardToString())
+                .setStyle(ButtonStyle.Success)
         );
     }
 
     if (currentRow.components.length > 0) {
         actionRows.push(currentRow);
     }
+
+    currentRow = new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('0').setLabel('draw').setStyle(ButtonStyle.Danger));
+    actionRows.push(currentRow);
 
     return actionRows;
 }
@@ -130,7 +132,6 @@ async function startGame(gameChannel) {
     game.currentPlayerIndex = 0;
     game.direction = 1;
     game.isActive = true;
-    hasGameStarted = true;
         
     let firstCard = game.deck.pop();
     while (firstCard.type === 'wild' || firstCard.type === '+4') {
@@ -177,12 +178,22 @@ async function advanceTurn(gameChannel) {
     const currentPlayer = await client.users.fetch(game.turnOrder[game.currentPlayerIndex]);
     const sentMessage = await currentPlayer.send({content:"It's your turn now!", components: generateCurrentPlayerComponents(game)});
     const filter = i => i.user.id === playerId;
-    const collector = sentMessage.createMessageComponentCollector({ filter, time: 120000 });
+    const collector = sentMessage.createMessageComponentCollector({ filter, time: 15000 });
 
     collector.on('collect', async i => {
         const index = parseInt(i.customId) - 1;
-        const playedCard = game.hands[playerId][index];
+        const playedCard = game.hands[playerId][index] || null;
         const topCard = game.discardPile[game.discardPile.length - 1];
+
+        if (playedCard == null) {
+            const drawnCard = game.deck.pop();
+            game.hands[playerId].push(drawnCard);
+            await currentPlayer.send(`You drew a card: ${drawnCard.cardToString()}`);
+               
+            game.currentPlayerIndex = (game.currentPlayerIndex + game.direction) % game.turnOrder.length;
+            advanceTurn(gameChannel);
+            return;
+        }
 
         if (!isValidPlay(playedCard, topCard, game.activeColor)) {
             await i.reply({
@@ -237,6 +248,11 @@ async function advanceTurn(gameChannel) {
 
         collector.stop();
 
+        if (game.hands[playerId].length == 0) {
+            game.isActive = false;
+            gameChannel.send(`<@${playerId}> won the game!`);
+        }
+
         advanceTurn(gameChannel);
     });
 
@@ -269,7 +285,6 @@ client.once('ready', () => {
 
 let players = [];
 let countingDown = false;
-let hasGameStarted = false;
 
 client.on('messageCreate', async message => {
     if (message.author.bot) return;
@@ -295,7 +310,7 @@ client.on('interactionCreate', async interaction => {
             flags: MessageFlags.Ephemeral
         });
     }
-    if (hasGameStarted) {
+    if (game.isActive) {
         return await interaction.reply({content: "This game already started", flags: MessageFlags.Ephemeral});
     }
 
